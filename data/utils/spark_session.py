@@ -26,6 +26,10 @@ def get_spark_session(
     """
     master = master or os.getenv("SPARK_MASTER", "local[*]")
 
+    import sys
+    os.environ["PYSPARK_PYTHON"] = sys.executable
+    os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+
     builder = (
         SparkSession.builder.appName(app_name)
         .master(master)

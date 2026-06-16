@@ -23,10 +23,12 @@ def run_simulation(spark: SparkSession, config: SimulationConfig) -> None:
     # Run the engine to get a pandas DataFrame
     pdf = engine.run(spark)
     
+    import pandas as pd
     # Convert pandas DataFrame to PySpark DataFrame
     print("Converting to PySpark DataFrame...")
     # Fill NaN with None or default values before converting
     pdf = pdf.fillna("")
+    pdf['timestamp'] = pd.to_datetime(pdf['timestamp'])
     df = spark.createDataFrame(pdf, schema=TRAFFIC_EVENT_SCHEMA)
     
     # Save to disk
