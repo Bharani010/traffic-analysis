@@ -19,3 +19,7 @@ dev = [
     "pytest>=8.2.0",
     "ruff>=0.4.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jobs*", "schemas*", "utils*", "simulation*"]
