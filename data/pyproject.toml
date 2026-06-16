@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "traffic-analysis-data"
+version = "0.1.0"
+description = "AI-Powered Anomaly Detection — Data Pipeline (PySpark)"
+requires-python = ">=3.11"
+dependencies = [
+    "pyspark>=3.5.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "pyarrow>=15.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "ruff>=0.4.0",
+]
