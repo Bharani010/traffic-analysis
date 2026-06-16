@@ -1,11 +1,11 @@
 """
-Anomaly and Incident SQLAlchemy models.
+Anomaly, Incident, Rule, and Investigation SQLAlchemy models.
 """
 
 import enum
 
 from sqlalchemy import Enum, Float, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -40,6 +40,26 @@ class IncidentStatus(str, enum.Enum):
     CLOSED = "closed"
 
 
+class InvestigationStatus(str, enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class Rule(Base, UUIDMixin, TimestampMixin):
+    """Detection rules."""
+
+    __tablename__ = "rules"
+
+    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
+    condition: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    action: Mapped[str] = mapped_column(String(256), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Rule {self.name}>"
+
+
 class Anomaly(Base, UUIDMixin, TimestampMixin):
     """An anomaly detected in traffic patterns."""
 
@@ -67,9 +87,16 @@ class Anomaly(Base, UUIDMixin, TimestampMixin):
 
     # ── Relationships ──
     incident_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True
     )
     incident: Mapped["Incident | None"] = relationship(back_populates="anomalies")
+
+    rule_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("rules.id", ondelete="SET NULL"), nullable=True
+    )
+    
+    # Optional link to feature entity that triggered this
+    feature_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     __table_args__ = (
         Index("ix_anomalies_severity_status", "severity", "status"),
@@ -98,6 +125,29 @@ class Incident(Base, UUIDMixin, TimestampMixin):
 
     # ── Relationships ──
     anomalies: Mapped[list["Anomaly"]] = relationship(back_populates="incident")
+    investigations: Mapped[list["Investigation"]] = relationship(back_populates="incident")
 
     def __repr__(self) -> str:
         return f"<Incident {self.title} status={self.status.value}>"
+
+
+class Investigation(Base, UUIDMixin, TimestampMixin):
+    """LLM Agent investigation into an incident."""
+
+    __tablename__ = "investigations"
+
+    incident_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    findings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[InvestigationStatus] = mapped_column(
+        Enum(InvestigationStatus), default=InvestigationStatus.PENDING, nullable=False
+    )
+
+    # ── Relationships ──
+    incident: Mapped["Incident"] = relationship(back_populates="investigations")
+
+    def __repr__(self) -> str:
+        return f"<Investigation for incident={self.incident_id} agent={self.agent_id}>"

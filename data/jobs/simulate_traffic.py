@@ -29,20 +29,17 @@ def run_simulation(spark: SparkSession, config: SimulationConfig) -> None:
     # Fill NaN with None or default values before converting
     pdf = pdf.fillna("")
     pdf['timestamp'] = pd.to_datetime(pdf['timestamp'])
-    df = spark.createDataFrame(pdf, schema=TRAFFIC_EVENT_SCHEMA)
-    
-    # Save to disk
     output_dir = os.path.abspath(config.output_path)
     os.makedirs(output_dir, exist_ok=True)
     parquet_path = os.path.join(output_dir, "traffic_events.parquet")
     
-    print(f"Writing {df.count()} events to {parquet_path}...")
-    df.write.mode("overwrite").parquet(parquet_path)
+    print(f"Writing {len(pdf)} events to {parquet_path}...")
+    pdf.to_parquet(parquet_path, engine="pyarrow", index=False, coerce_timestamps="us")
     print("Done!")
 
     # Print summary
     print("\n--- Event Type Distribution ---")
-    df.groupBy("is_attack", "attack_type").count().orderBy(col("count").desc()).show(truncate=False)
+    print(pdf.groupby(["is_attack", "attack_type"]).size().sort_values(ascending=False))
 
 
 if __name__ == "__main__":

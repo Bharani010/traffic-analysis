@@ -1,84 +1,141 @@
 """
-Anomaly detection Spark job.
+Anomaly Detection Engine.
 
-Applies rule-based and statistical anomaly detection on processed
-traffic events. ML model integration planned for Phase 3+.
+Reads the engineered features from PySpark, runs rule-based heuristics
+and an Isolation Forest ML model to flag suspicious sessions and IPs.
 """
 
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import functions as F
-
-from data.utils.spark_session import get_spark_session
-
-
-def detect_high_request_rate(df: DataFrame, threshold: int = 100) -> DataFrame:
-    """Flag IPs with request rates above the threshold (rule-based)."""
-    return df.withColumn(
-        "is_high_rate_anomaly",
-        F.when(F.col("requests_per_5min") > threshold, True).otherwise(False),
-    )
+import os
+import uuid
+import pandas as pd
+from datetime import datetime
+from sklearn.ensemble import IsolationForest
 
 
-def detect_high_error_rate(df: DataFrame, threshold: float = 0.5) -> DataFrame:
-    """Flag IPs with error rates above the threshold (rule-based)."""
-    return df.withColumn(
-        "is_high_error_anomaly",
-        F.when(F.col("error_rate_5min") > threshold, True).otherwise(False),
-    )
+def detect_anomalies(features_df: pd.DataFrame) -> pd.DataFrame:
+    """Run detection heuristics and ML models on features."""
+    anomalies = []
 
+    # 1. Rule-Based Detection
+    for _, row in features_df.iterrows():
+        entity = row['entity_id']
+        entity_type = row['entity_type']
+        
+        # Rule 1: High Failed Login Rate (Credential Stuffing / Brute Force)
+        if row['failed_login_rate'] > 0.5 and row['requests_per_minute'] > 5:
+            anomalies.append({
+                "id": str(uuid.uuid4()),
+                "title": f"High Failed Login Rate on {entity_type} {entity}",
+                "description": f"Failed login rate of {row['failed_login_rate']:.2f} with {row['requests_per_minute']:.2f} req/min.",
+                "severity": "high",
+                "detection_method": "rule_based",
+                "status": "open",
+                "confidence_score": 0.95,
+                "source_ip": entity if entity_type == 'ip' else None,
+                "affected_endpoint": "/api/v1/auth/login",
+                "event_count": int(row['requests_per_minute'] * row['session_duration'] / 60) if row['session_duration'] > 0 else 10,
+                "feature_id": row['id'],
+                "created_at": datetime.utcnow().isoformat()
+            })
 
-def detect_slow_responses(df: DataFrame, threshold_ms: float = 2000.0) -> DataFrame:
-    """Flag requests with unusually slow response times (statistical)."""
-    return df.withColumn(
-        "is_slow_response_anomaly",
-        F.when(F.col("response_time_ms") > threshold_ms, True).otherwise(False),
-    )
+        # Rule 2: API Abuse (High volume, low entropy)
+        if row['requests_per_minute'] > 100 and row['endpoint_entropy'] < 0.5:
+            anomalies.append({
+                "id": str(uuid.uuid4()),
+                "title": f"API Abuse / DoS from {entity_type} {entity}",
+                "description": f"Extremely high request rate ({row['requests_per_minute']:.2f} req/min) targeting a narrow set of endpoints (entropy: {row['endpoint_entropy']:.2f}).",
+                "severity": "critical",
+                "detection_method": "rule_based",
+                "status": "open",
+                "confidence_score": 0.98,
+                "source_ip": entity if entity_type == 'ip' else None,
+                "affected_endpoint": "multiple",
+                "event_count": int(row['requests_per_minute']),
+                "feature_id": row['id'],
+                "created_at": datetime.utcnow().isoformat()
+            })
+            
+        # Rule 3: Session Hijacking / Geo Takeover
+        if row['country_switch_frequency'] > 2:
+            anomalies.append({
+                "id": str(uuid.uuid4()),
+                "title": f"Geographic Account Takeover / Session Hijacking on {entity}",
+                "description": f"Session changed countries {row['country_switch_frequency']} times.",
+                "severity": "high",
+                "detection_method": "rule_based",
+                "status": "open",
+                "confidence_score": 0.85,
+                "source_ip": entity if entity_type == 'ip' else None,
+                "affected_endpoint": "all",
+                "event_count": 1,
+                "feature_id": row['id'],
+                "created_at": datetime.utcnow().isoformat()
+            })
 
+    # 2. ML-Based Detection (Isolation Forest)
+    # Train an unsupervised Isolation Forest on continuous features
+    ml_features = ['requests_per_minute', 'failed_login_rate', 'avg_response_time', 
+                   'endpoint_entropy', 'session_duration']
+    
+    X = features_df[ml_features].fillna(0)
+    
+    if len(X) > 10:
+        model = IsolationForest(contamination=0.01, random_state=42)
+        features_df['ml_anomaly'] = model.fit_predict(X)
+        features_df['ml_score'] = model.decision_function(X)
+        
+        # -1 indicates anomaly
+        ml_anomalies_df = features_df[features_df['ml_anomaly'] == -1]
+        
+        for _, row in ml_anomalies_df.iterrows():
+            entity = row['entity_id']
+            # Only add if we don't have overlapping severe rule anomalies for simplicity, 
+            # or just add them all and let Incident aggregation handle it.
+            score = float(-row['ml_score']) # Convert to positive risk score
+            anomalies.append({
+                "id": str(uuid.uuid4()),
+                "title": f"Statistical Traffic Anomaly on {row['entity_type']} {entity}",
+                "description": f"Isolation Forest detected highly unusual feature combination. Score: {score:.3f}.",
+                "severity": "medium",
+                "detection_method": "ml_model",
+                "status": "open",
+                "confidence_score": min(0.5 + score, 0.99),
+                "source_ip": entity if row['entity_type'] == 'ip' else None,
+                "affected_endpoint": "multiple",
+                "event_count": 1,
+                "feature_id": row['id'],
+                "created_at": datetime.utcnow().isoformat()
+            })
 
-def detect_off_hours_admin(df: DataFrame) -> DataFrame:
-    """Flag admin endpoint access outside business hours (rule-based)."""
-    return df.withColumn(
-        "is_off_hours_admin_anomaly",
-        F.when(
-            (F.col("path").startswith("/admin"))
-            & (~F.col("is_business_hours")),
-            True,
-        ).otherwise(False),
-    )
-
-
-def run_detection_pipeline(df: DataFrame) -> DataFrame:
-    """
-    Run all anomaly detection methods and produce a summary.
-
-    Returns the original DataFrame augmented with anomaly flags
-    and an aggregate is_anomaly column.
-    """
-    df = detect_high_request_rate(df)
-    df = detect_high_error_rate(df)
-    df = detect_slow_responses(df)
-    df = detect_off_hours_admin(df)
-
-    # Aggregate: any flag triggers overall anomaly
-    df = df.withColumn(
-        "is_anomaly",
-        F.col("is_high_rate_anomaly")
-        | F.col("is_high_error_anomaly")
-        | F.col("is_slow_response_anomaly")
-        | F.col("is_off_hours_admin_anomaly"),
-    )
-
-    return df
+    return pd.DataFrame(anomalies)
 
 
 if __name__ == "__main__":
-    spark = get_spark_session("AnomalyDetector")
-
-    # In production:
-    # df = spark.read.parquet("s3://bucket/processed-events/")
-    # result = run_detection_pipeline(df)
-    # anomalies = result.filter(F.col("is_anomaly"))
-    # anomalies.write.parquet("s3://bucket/anomalies/")
-
-    print("Anomaly detector ready. Configure data sources for production use.")
-    spark.stop()
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    input_path = os.path.join(base_dir, "output", "features.parquet")
+    output_path = os.path.join(base_dir, "output", "anomalies.json")
+    
+    if not os.path.exists(input_path):
+        print(f"Error: Features file not found at {input_path}")
+        exit(1)
+        
+    print(f"Loading features from {input_path}...")
+    df = pd.read_parquet(input_path)
+    print(f"Loaded {len(df)} feature records.")
+    
+    print("Running detection engine (Rules + ML)...")
+    anomalies_df = detect_anomalies(df)
+    
+    if not anomalies_df.empty:
+        print(f"Detected {len(anomalies_df)} anomalies!")
+        
+        print("\nBreakdown by severity:")
+        print(anomalies_df['severity'].value_counts())
+        
+        print("\nBreakdown by method:")
+        print(anomalies_df['detection_method'].value_counts())
+        
+        print(f"\nSaving anomalies to {output_path}...")
+        anomalies_df.to_json(output_path, orient='records', indent=2)
+    else:
+        print("No anomalies detected.")

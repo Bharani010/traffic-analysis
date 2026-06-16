@@ -16,8 +16,9 @@ from app.core.config import settings
 from app.models.base import Base
 
 # Import all models so Alembic can detect them
-from app.features.traffic.models import TrafficEvent  # noqa: F401
-from app.features.anomalies.models import Anomaly, Incident  # noqa: F401
+from app.features.auth.models import User, Session  # noqa: F401
+from app.features.traffic.models import RawEvent, Feature  # noqa: F401
+from app.features.anomalies.models import Anomaly, Incident, Rule, Investigation  # noqa: F401
 
 config = context.config
 
