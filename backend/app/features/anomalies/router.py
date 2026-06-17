@@ -11,8 +11,6 @@ from app.features.anomalies.agents import InvestigationAgent
 
 router = APIRouter()
 
-# Instantiate the agent once
-agent = InvestigationAgent()
 
 @router.get("/anomalies")
 async def get_anomalies() -> dict[str, Any]:
@@ -45,6 +43,7 @@ async def investigate_anomaly(anomaly_id: str) -> dict[str, Any]:
     if not target:
         raise HTTPException(status_code=404, detail="Anomaly not found")
         
+    agent = InvestigationAgent()
     report = agent.investigate(target)
     
     return {
