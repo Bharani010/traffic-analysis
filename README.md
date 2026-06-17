@@ -84,20 +84,26 @@ docker compose up --build
 # Metrics:   http://localhost:8000/metrics
 ```
 
-### Local Development
+### Generating the Data Dataset
+To test the pipeline locally, you need to generate the anomaly dataset first:
+```bash
+# This runs the Traffic Simulator, PySpark ETL, and Scikit-Learn Detection Engine
+.\run_pipeline.bat
+```
+
+### Local Development (Without Docker)
+
+You can run the entire platform locally without Docker by using the provided convenience script:
 
 ```bash
-# Backend
-cd backend
-pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+# Starts both the FastAPI Backend (Port 8000) and React Frontend (Port 3000)
+.\run_local.bat
+```
 
-# Frontend
-cd frontend
-npm install
-npm run dev
+*Note: For the LangChain Investigation Agent to use OpenAI, ensure you add your `OPENAI_API_KEY` to the `.env` file. Otherwise, it will seamlessly fall back to a Mock LLM for offline testing.*
 
 # Run tests
+```bash
 make test
 ```
 

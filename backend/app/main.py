@@ -18,7 +18,7 @@ from app.core.logging import setup_logging
 from app.core.metrics import setup_metrics
 from app.features.anomalies.router import router as anomalies_router
 from app.features.health.router import router as health_router
-from app.features.traffic.router import router as traffic_router
+# from app.features.traffic.router import router as traffic_router
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 
@@ -68,7 +68,7 @@ def create_app() -> FastAPI:
 
     # ── Routers ──
     app.include_router(health_router, prefix="/api/v1", tags=["Health"])
-    app.include_router(traffic_router, prefix="/api/v1", tags=["Traffic"])
+    # app.include_router(traffic_router, prefix="/api/v1", tags=["Traffic"])
     app.include_router(anomalies_router, prefix="/api/v1", tags=["Anomalies"])
 
     return app
