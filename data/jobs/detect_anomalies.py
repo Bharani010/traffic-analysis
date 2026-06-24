@@ -72,6 +72,37 @@ def detect_anomalies(features_df: pd.DataFrame) -> pd.DataFrame:
                 "created_at": datetime.utcnow().isoformat()
             })
 
+        # Rule 4: Bot Crawling
+        # Signature: medium-high velocity + zero login attempts + low endpoint entropy.
+        # Bots that scrape browse endpoints at a steady pace never touch /auth/login,
+        # so failed_login_rate == 0. Their endpoint spread is also compressed (only
+        # browse subcategory), giving entropy below 1.5. This compound rule was added
+        # after the Isolation Forest (calibrated at contamination=0.01) was
+        # systematically missing bot crawling due to the model being tuned for a
+        # lower anomaly rate than the actual 5% injection ratio.
+        if (row['requests_per_minute'] > 30
+                and row['endpoint_entropy'] < 1.5
+                and row['failed_login_rate'] == 0.0):
+            anomalies.append({
+                "id": str(uuid.uuid4()),
+                "title": f"Bot Crawling Detected on {entity_type} {entity}",
+                "description": (
+                    f"Medium-velocity scraping ({row['requests_per_minute']:.2f} req/min) "
+                    f"with zero login attempts and compressed endpoint entropy "
+                    f"({row['endpoint_entropy']:.2f}). Consistent with automated "
+                    f"crawling targeting browse endpoints."
+                ),
+                "severity": "medium",
+                "detection_method": "rule_based",
+                "status": "open",
+                "confidence_score": 0.80,
+                "source_ip": entity if entity_type == 'ip' else None,
+                "affected_endpoint": "multiple browse endpoints",
+                "event_count": int(row['requests_per_minute']),
+                "feature_id": row['id'],
+                "created_at": datetime.utcnow().isoformat()
+            })
+
     # 2. ML-Based Detection (Isolation Forest)
     # Train an unsupervised Isolation Forest on continuous features
     ml_features = ['requests_per_minute', 'failed_login_rate', 'avg_response_time', 
